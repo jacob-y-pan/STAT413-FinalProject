@@ -1,0 +1,10 @@
+---
+title: "Final Project"
+output: pdf_document
+date: "December 12, 2023"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ISLR2)
+```
