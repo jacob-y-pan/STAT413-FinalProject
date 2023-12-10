@@ -6,5 +6,72 @@ date: "December 12, 2023"
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(ggplot2)
+library(ggthemes)
 library(ISLR2)
+library(isotree)
+library(ellipse)
 ```
+
+```{r}
+# Load in real world data from ISLR package
+auto_df = Auto
+
+# Test if the numeric data has any outliers according to Mahalanobis distance
+auto_center = colMeans(auto_df[, 1:6])
+auto_cov = cov(auto_df[, 1:6])
+auto_dst = mahalanobis(auto_df[, 1:6], auto_center, auto_cov)
+auto_cutoff = qchisq(0.95, df = ncol(auto_df[, 1:6]))
+
+auto_df[auto_dst > auto_cutoff, ] # Observations considered outliers
+```
+
+```{r}
+# Plot the data
+plot(auto_df[, 1:6], pch = 20, main = "Auto Data")
+```
+
+```{r}
+# Create a scatter plot of horsepower vs mpg, coloring based on Mahalanobis distance
+hp_ellipse = as.data.frame(ellipse(cor(auto_df[, c(4, 1)]), scale = c(sd(auto_df[,4]), sd(auto_df[,1])), centre = c(auto_center[4], auto_center[1])), level = 0.95)
+
+ggplot(auto_df, aes(x = horsepower, y = mpg)) + 
+  geom_point(aes(color=auto_dst)) + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, fill = "blue") +
+  labs(title = "Visualizing Mahalanobis Distance for Horsepower vs. MPG", x = "Horsepower", y = "MPG", color="Mahalanobis Distance") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+```
+
+```{r}
+# Create a scatter plot of acceleration vs mpg, coloring based on Mahalanobis distance
+acc_ellipse = as.data.frame(ellipse(cor(auto_df[, c(6, 1)]), scale = c(sd(auto_df[,6]), sd(auto_df[,1])), centre = c(auto_center[6], auto_center[1])), level = 0.95)
+
+ggplot(auto_df, aes(x = acceleration, y = mpg)) + 
+  geom_point(aes(color=auto_dst)) + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue") +
+  labs(title = "Visualizing Mahalanobis Distance for Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Mahalanobis Distance") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+```
+
+```{r}
+set.seed(1)
+
+# Perform isolation forest on the auto data
+if_model = isolation.forest(auto_df[, 1:6], ntrees = 500, nthreads = 1)
+if_pred = predict(if_model, auto_df[, 1:6])
+if_pred[if_pred > 0.5] # Outliers based on isolation forest using 0.5 as a threshold
+```
+
+```{r}
+# Plot the isolation forest outliers
+auto_df$if_pred = as.factor(ifelse(if_pred > 0.5, "Outlier", "Not Outlier"))
+
+ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_pred)) + 
+  geom_point() + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
+  labs(title = "Visualizing Isolation Forest on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "Isolation Forest Result") +
+  theme_minimal()
+```
+
