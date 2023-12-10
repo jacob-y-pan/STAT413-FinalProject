@@ -11,27 +11,32 @@ library(ggthemes)
 library(ISLR2)
 library(isotree)
 library(ellipse)
+
+set.seed(1)
 ```
 
 
 Real World Data:
 ```{r}
-# Load in real world data from ISLR package
-auto_df = Auto
+# Load the Auto data from ISLR package
+auto_df = Auto[, 1:6] # Only use the numeric data
 
-# Test if the numeric data has any outliers according to Mahalanobis distance
-auto_center = colMeans(auto_df[, 1:6])
-auto_cov = cov(auto_df[, 1:6])
-auto_dst = mahalanobis(auto_df[, 1:6], auto_center, auto_cov)
-auto_cutoff = qchisq(0.95, df = ncol(auto_df[, 1:6]))
-
-auto_df[auto_dst > auto_cutoff, ] # Observations considered outliers
+# Plot the pairwise data relationships
+plot(auto_df, pch = 20, main = "Auto Data Pairwise Relationships")
 ```
+Many of the variables seem to be correlated, with some linear and some polynomial relationships. Looking at just the pairwise relationships, there are obviously at least a few outliers in the data. We can use Mahalanobis distance as a benchmark to detect outliers in the data. This will be used to compare our other methods' results.
 
 ```{r}
-# Plot the data
-plot(auto_df[, 1:6], pch = 20, main = "Auto Data")
+# Test if the numeric data has any outliers according to Mahalanobis distance
+auto_center = colMeans(auto_df)
+auto_cov = cov(auto_df)
+auto_dst = mahalanobis(auto_df, auto_center, auto_cov)
+auto_cutoff = qchisq(0.95, df = ncol(auto_df))
+
+nrow(auto_df[auto_dst > auto_cutoff, ]) # Number of observations considered outliers
 ```
+
+Using Mahalanobis distance, we can see that there are 38 observations in the Auto dataset that are considered outliers. We can visualize this by plotting the data and coloring the points based on their Mahalanobis distance. We can also plot the Mahalanobis distance ellipses for horsepower vs mpg and acceleration vs mpg, which gives us a reference for the outlier threshold if we were using just the two variables.
 
 ```{r}
 # Create a scatter plot of horsepower vs mpg, coloring based on Mahalanobis distance
@@ -39,7 +44,7 @@ hp_ellipse = as.data.frame(ellipse(cor(auto_df[, c(4, 1)]), scale = c(sd(auto_df
 
 ggplot(auto_df, aes(x = horsepower, y = mpg)) + 
   geom_point(aes(color=auto_dst)) + 
-  geom_polygon(data = hp_ellipse, alpha = 0.2, fill = "blue") +
+  geom_polygon(data = hp_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing Mahalanobis Distance for Horsepower vs. MPG", x = "Horsepower", y = "MPG", color="Mahalanobis Distance") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
@@ -51,38 +56,69 @@ acc_ellipse = as.data.frame(ellipse(cor(auto_df[, c(6, 1)]), scale = c(sd(auto_d
 
 ggplot(auto_df, aes(x = acceleration, y = mpg)) + 
   geom_point(aes(color=auto_dst)) + 
-  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue") +
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing Mahalanobis Distance for Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Mahalanobis Distance") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 ```
 
 ```{r}
-set.seed(1)
-
 # Perform isolation forest on the auto data
 if_model = isolation.forest(auto_df[, 1:6], ntrees = 500, nthreads = 1)
 if_pred = predict(if_model, auto_df[, 1:6])
-if_pred[if_pred > 0.5] # Outliers based on isolation forest using 0.5 as a threshold
+if_outliers = as.factor(ifelse(if_pred > 0.5, "Outlier", "Not Outlier"))
+
+length(if_outliers[if_outliers == "Outlier"]) # Number of outliers based on isolation forest
 ```
+There are 49 outliers based on the isolation forest model. We can visualize this by plotting the data and coloring the points based on if the isolation forest predicted them as an outlier. We can also plot the Mahalanobis distance ellipses, which allows us to compare the isolation forest results to the Mahalanobis distance results.
 
 ```{r}
 # Plot the isolation forest outliers
-auto_df$if_pred = as.factor(ifelse(if_pred > 0.5, "Outlier", "Not Outlier"))
-
-ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_pred)) + 
+ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_outliers)) + 
   geom_point() + 
   geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
-  labs(title = "Visualizing Isolation Forest on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "Isolation Forest Result") +
+  labs(title = "Visualizing Isolation Forest on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
   theme_minimal()
 ```
+
+```{r}
+ggplot(auto_df, aes(x = acceleration, y = mpg, color = if_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Isolation Forest on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+The results of using Isolation Forest is very similar to using Mahalanobis distance, with the exception of a few points. The Mahalanobis distance seems to be more conservative than the isolation forest results. This is likely due to the fact that isolation forest is based on the number of splits it takes to isolate a point, which is able to measure non-linear outliers between variables.
+
+
+
+To measure the performance of the outlier detection methods, we will use the R^2 value of a linear regression model using mpg as the response variable. We will use the R^2 value of the linear regression model with all of the data, and then the R^2 value of the linear regression model with the outliers removed. This will mimic the methods' ability to detect bad data points to improve data/model quality.
+
+```{r}
+# Create a linear regression model using all of the data
+original_lm = lm(mpg ~ ., data = auto_df)
+summary(original_lm)$r.squared # R^2 value of the original linear regression model
+```
+
+```{r}
+# Model with outliers removed using Mahalanobis distance
+mahal_lm = lm(mpg ~ ., data = auto_df[auto_dst <= auto_cutoff, ])
+summary(mahal_lm)$r.squared # R^2 value of the original linear regression model
+```
+
+```{r}
+# Model with outliers removed using isolation forest
+if_lm = lm(mpg ~ ., data = auto_df[if_outliers == "Not Outlier", ])
+summary(if_lm)$r.squared # R^2 value of the original linear regression model
+```
+
 
 
 
 ```{r A}
 # This code is to generate simulated data with outliers
 # Generate a polynomial underlying, with random noise
-set.seed(1)
 x1poly = runif(100, min = -1, max = 1)
 
 ypoly = 2*x1poly^2 + 3*x1poly + 4 + rnorm(100, mean = 0, sd = 1)
