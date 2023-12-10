@@ -13,6 +13,8 @@ library(isotree)
 library(ellipse)
 ```
 
+
+Real World Data:
 ```{r}
 # Load in real world data from ISLR package
 auto_df = Auto
@@ -75,3 +77,79 @@ ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_pred)) +
   theme_minimal()
 ```
 
+
+
+```{r A}
+# This code is to generate simulated data with outliers
+# Generate a polynomial underlying, with random noise
+set.seed(1)
+x1poly = runif(100, min = -1, max = 1)
+
+ypoly = 2*x1poly^2 + 3*x1poly + 4 + rnorm(100, mean = 0, sd = 1)
+plot(x1poly, ypoly, main = "Simulated Data", xlab = "x1", ylab = "y")
+
+# Add outliers
+outlierspoly = c(-0.4, 0, 0.2, 0.5, 0.8)
+x1poly = c(x1poly, outlierspoly)
+# outlieryvalues = c(1, -1, 1, -1, 1)
+ypoly = c(ypoly, mean(y))
+ypoly
+# Make only the outliers red 
+plot(x1poly, ypoly, main = "Simulated Data with Outliers", xlab = "x1", ylab = "y", col = ifelse(x1poly %in% outlierspoly, "red", "black"))
+
+# Calculate mahalabonis distance of each point to confirm outliers are outliers
+mahalabonispoly = mahalanobis(x = cbind(x1poly, ypoly), center = colMeans(cbind(x1poly, ypoly)), cov = cov(cbind(x1poly, ypoly)))
+mahalabonispoly
+# Find p-value of each point
+pvaluespoly = 1 - pchisq(mahalabonispoly, df = 2)
+# Any points with p-value < 0.01 are outliers, detect them
+outlierspoly = x1poly[pvaluespoly < 0.01]
+outlierspoly
+```
+
+```{r B}
+# Same procedure, except with a mutlivariable underlying
+set.seed(1)
+x1complex = runif(100, min = -1, max = 1)
+x2complex = runif(100, min = -1, max = 1)
+
+ycomplex = 2*x1complex^2 + 3*x1complex + 4 + 2*x2complex^2 + 3*x2complex + 4 + rnorm(100, mean = 0, sd = 1)
+
+plot(x1complex, ycomplex, main = "Simulated Data", xlab = "x1", ylab = "y")
+plot(x2complex, ycomplex, main = "Simulated Data", xlab = "x2", ylab = "y")
+
+outlierscomplexx1 = c(-0.4, 0, 0.2, 0.5)
+# Different x points for x2
+outlierscomplexx2 = c(-0.9, -0.5, 0.25, 0.8)
+x1complex = c(x1complex, outlierscomplexx1)
+x2complex = c(x2complex, outlierscomplexx2)
+ycomplex = c(ycomplex, 20, 20, 2, 1)
+
+plot(x1complex, ycomplex, main = "Simulated Data with Outliers", xlab = "x1", ylab = "y", col = ifelse(x1complex %in% outlierscomplexx1, "red", "black"))
+plot(x2complex, ycomplex, main = "Simulated Data with Outliers", xlab = "x2", ylab = "y", col = ifelse(x2complex %in% outlierscomplexx2, "red", "black"))
+
+maha1 = mahalanobis(x = cbind(x1complex, ycomplex), center = colMeans(cbind(x1complex, ycomplex)), cov = cov(cbind(x1complex, ycomplex)))
+maha2 = mahalanobis(x = cbind(x2complex, ycomplex), center = colMeans(cbind(x2complex, ycomplex)), cov = cov(cbind(x2complex, ycomplex)))
+
+pvalues1 = 1 - pchisq(maha1, df = 2)
+pvalues2 = 1 - pchisq(maha2, df = 2)
+
+outlierscomplexx1 = x1complex[pvalues1 < 0.01]
+outlierscomplexx2 = x2complex[pvalues2 < 0.01]
+# Table with outliers of x1 and x2 in different columns
+outlierscomplex = data.frame(outlierscomplexx1, outlierscomplexx2)
+outlierscomplex
+```
+
+```{r C}
+```
+
+```{r C}
+```
+
+```{r C}
+```
+
+```{r C}
+```
+>>>>>>> 394740410c33d53dfce5e21c83e65429dba2d748
