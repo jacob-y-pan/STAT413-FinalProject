@@ -12,11 +12,12 @@ library(ISLR2)
 library(isotree)
 library(ellipse)
 library(dbscan)
+
 set.seed(1)
 ```
 
 
-Real World Data:
+## Real World Data:
 ```{r}
 # Load the Auto data from ISLR package
 auto_df = Auto[, 1:6] # Only use the numeric data
@@ -219,8 +220,113 @@ knn_pred = predict(model, auto_test)
 knn_mse = mean((knn_pred - auto_test$mpg)^2)
 knn_mse # Test MSE using KNN outlier removal
 ```
-
 KNN has the worst test MSE of all the methods. It also only removed a single observation, and overall, it is much more conservative than the other methods. This also due to the hyper-parameter tuning, and other parameter combinations could produce more aggressive detection. Since it performed worse than the original model, it means that the one outlier it removed was a useful observation for the model.
+
+
+## Simulated Data
+For this first section, we will generate a polynomial dataset and use Mahalanobis distance to detect outliers.
+
+```{r}
+# Generate simulated polynomial data, coloring based on Mahalanobis distance
+x1poly = runif(100, min = -1, max = 1)
+ypoly = 5*x1poly^2 + 2*x1poly + 4 + rnorm(100, mean = 0, sd = 1)
+
+# Combine the data into a dataframe
+poly_df = data.frame(x1poly, ypoly)
+# Split into training and testing sets
+poly_train = poly_df[1:80, ]
+poly_test = poly_df[81:100, ]
+```
+We also want to add our explicit outliers - these will be points that are at least 3 standard deviations away from the mean.
+
+```{r}
+# Add explicit outliers
+coefficients_to_use = rnorm(4, mean = 3, sd = 1)
+poly_outliers = data.frame(x1poly = c(-0.4, 0, 0.4, 0.6), ypoly = c(mean(poly_train$ypoly) + coefficients_to_use[1]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[2]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[3]*sd(poly_train$ypoly), mean(poly_train$ypoly) + coefficients_to_use[4]*sd(poly_train$ypoly)))
+poly_outliers
+poly_train = rbind(poly_train, poly_outliers)
+```
+
+Now let's calculate the Mahalanobis distance for each point in the training set, and plot the data with the Mahalanobis distance ellipses.
+
+```{r}
+mana_dst = mahalanobis(poly_train, colMeans(poly_train), cov(poly_train))
+mana_cutoff = qchisq(0.95, df=ncol(poly_train))
+
+# Get outliers with the cutoff
+mana_outliers = poly_train[mana_dst > mana_cutoff, ]
+mana_outliers
+
+poly_ellipse = as.data.frame(ellipse(cor(poly_train), scale=c(sd(poly_train$x1poly), sd(poly_train$ypoly)), centre=c(mean(poly_train$x1poly), mean(poly_train$ypoly)), level=0.95))
+ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
+  geom_point(aes(color=mana_dst)) + 
+  geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Mahalanobis Distance on Simulated Data", x = "x1", y = "y", color="Mahalanobis distance") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+Now, we are going to local outlier factor to detect outliers in the simulated data.
+
+```{r}
+# Use local outlier factor to detect outliers
+lof = lof(poly_train, k = 5)
+lof_outliers = poly_train[lof > 1.5, ]
+lof_outliers
+```
+
+Let's plot and compare to the Mahalanobis distance results.
+
+```{r}
+# Plot the data with the outliers
+ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
+  geom_point(aes(color=lof)) + 
+  geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Local Outlier Factor on Simulated Data", x = "x1", y = "y", color="Local Outlier Factor") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+
+Let's now generate a mutli-linear regression model using this train data after removing points based on Mahalanobis and then Local Outlier Factor, and then find the MSE with the test data.
+```{r}
+# Get the training data without the Mahalanobis outliers by removing points that are in mana_outliers
+poly_train_mana = poly_train[!poly_train$x1poly %in% mana_outliers$x1poly, ]
+# Get data without the LOF outliers
+poly_train_lof = poly_train[!poly_train$x1poly %in% lof_outliers$x1poly, ]
+
+# Generate models for all
+poly_lm = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train)
+poly_lm_mana = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_mana)
+poly_lm_lof = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_lof)
+
+# Calculate MSE
+mana_mse = mean((poly_test$ypoly - predict(poly_lm_mana, poly_test))^2)
+lof_mse = mean((poly_test$ypoly - predict(poly_lm_lof, poly_test))^2)
+all_mse = mean((poly_test$ypoly - predict(poly_lm, poly_test))^2)
+
+# Compare the MSEs
+all_mse
+mana_mse
+lof_mse
+
+```
+
+Let's also compare the R-Squared values of the two models.
+
+```{r}
+# Calculate R-Squared
+all_r2 = summary(poly_lm)$r.squared
+mana_r2 = summary(poly_lm_mana)$r.squared
+lof_r2 = summary(poly_lm_lof)$r.squared
+
+# Compare the R-Squared values
+all_r2
+mana_r2
+lof_r2
+```
+
+
 
 ```{r A}
 # This code is to generate simulated data with outliers
@@ -285,13 +391,3 @@ outlierscomplex
 
 ```{r C}
 ```
-
-```{r C}
-```
-
-```{r C}
-```
-
-```{r C}
-```
->>>>>>> 394740410c33d53dfce5e21c83e65429dba2d748
