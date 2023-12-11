@@ -17,212 +17,6 @@ set.seed(1)
 ```
 
 
-## Real World Data:
-```{r}
-# Load the Auto data from ISLR package
-auto_df = Auto[, 1:6] # Only use the numeric data
-
-# Split the data into training and testing sets
-train_idx = sample(1:nrow(auto_df), 0.8 * nrow(auto_df))
-auto_train = auto_df[train_idx, ]
-auto_test = auto_df[-train_idx, ]
-```
-
-In real world data, outliers are a common occurence. Whether from human error or uncommon occurence, outliers can be both a nuisance and an object of interest. We will use the Auto data set from the ISLR2 package, which contains data on 392 cars from the 1970s and 1980s. The data set contains 6 numeric variables: mpg, cylinders, displacement, horsepower, weight, and acceleration. We will use these variables to detect outliers in the data. 
-
-A potential use for outlier detection is finding outstanding cars: outliers in their performance and details. However, for the purposes of our testing, we will compare outlier detection methods by their ability to improve model training. By training a linear regression model on data without outliers, it will be able to better fit the general trends of the data and make more accurate predictions. We split the Auto data set into a training and testing set to compare the performance of our models.
-
-```{r}
-# Plot the pairwise data relationships
-plot(auto_df, pch = 20, main = "Auto Data Pairwise Relationships")
-```
-Many of the variables seem to be correlated, with some linear and some polynomial relationships. Looking at just the pairwise relationships, there are obviously at least a few outliers in the data. We can use Mahalanobis distance as a benchmark to detect outliers in the data. This will be used to compare our other methods' results.
-
-```{r}
-# Test if the numeric data has any outliers according to Mahalanobis distance
-auto_center = colMeans(auto_df)
-auto_cov = cov(auto_df)
-auto_dst = mahalanobis(auto_df, auto_center, auto_cov)
-auto_cutoff = qchisq(0.95, df = ncol(auto_df))
-
-nrow(auto_df[auto_dst > auto_cutoff, ]) # Number of observations considered outliers
-```
-
-Using Mahalanobis distance, we can see that there are 38 observations in the Auto data set that are considered outliers. We can visualize this by plotting the data and coloring the points based on their Mahalanobis distance. We can also plot the Mahalanobis distance ellipses for horsepower vs mpg and acceleration vs mpg, which gives us a reference for the outlier threshold if we were using just the two variables.
-
-```{r}
-# Create a scatter plot of horsepower vs mpg, coloring based on Mahalanobis distance
-hp_ellipse = as.data.frame(ellipse(cor(auto_df[, c(4, 1)]), scale = c(sd(auto_df[,4]), sd(auto_df[,1])), centre = c(auto_center[4], auto_center[1]), level = 0.95))
-
-ggplot(auto_df, aes(x = horsepower, y = mpg)) + 
-  geom_point(aes(color=auto_dst)) + 
-  geom_polygon(data = hp_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
-  labs(title = "Visualizing Mahalanobis Distance for Horsepower vs. MPG", x = "Horsepower", y = "MPG", color="Mahalanobis Distance") +
-  scale_color_gradient(low = "yellow", high = "red") +
-  theme_minimal()
-```
-
-```{r}
-# Create a scatter plot of acceleration vs mpg, coloring based on Mahalanobis distance
-acc_ellipse = as.data.frame(ellipse(cor(auto_df[, c(6, 1)]), scale = c(sd(auto_df[,6]), sd(auto_df[,1])), centre = c(auto_center[6], auto_center[1]), level = 0.95))
-
-ggplot(auto_df, aes(x = acceleration, y = mpg)) + 
-  geom_point(aes(color=auto_dst)) + 
-  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
-  labs(title = "Visualizing Mahalanobis Distance for Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Mahalanobis Distance") +
-  scale_color_gradient(low = "yellow", high = "red") +
-  theme_minimal()
-```
-
-It's important to note that these visuals are only depicting the Mahalanobis distance thresholds for two variables. The other variables also contribute to a point's Mahalanobis distance, so some outliers may be inside the ellipse. Furthermore, the cutoff for considering a point an outlier is about 13, so orangish points are considered outliers. Overall, Mahalanobis distance seems to be robust and somewhat conservative. We can use this as a benchmark to compare our other methods' results.
-
-```{r}
-# Perform isolation forest on the auto data
-if_model = isolation.forest(auto_df, ntrees = 500, nthreads = 1)
-if_pred = predict(if_model, auto_df)
-if_outliers = as.factor(ifelse(if_pred > 0.5, "Outlier", "Not Outlier"))
-
-length(if_outliers[if_outliers == "Outlier"]) # Number of outliers based on isolation forest
-```
-There are 49 outliers based on the isolation forest model. We can visualize this by plotting the data and coloring the points based on if the isolation forest predicted them as an outlier. We can also plot the Mahalanobis distance ellipses, which allows us to compare the isolation forest results to the Mahalanobis distance results.
-
-```{r}
-# Plot the isolation forest outliers on horsepower vs mpg
-ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_outliers)) + 
-  geom_point() + 
-  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
-  labs(title = "Visualizing Isolation Forest on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
-  theme_minimal()
-```
-
-```{r}
-# Plot the isolation forest outliers on acceleration vs mpg
-ggplot(auto_df, aes(x = acceleration, y = mpg, color = if_outliers)) + 
-  geom_point() + 
-  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
-  labs(title = "Visualizing Isolation Forest on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
-  theme_minimal()
-```
-
-The results of using Isolation Forest is very similar to using Mahalanobis distance, with the exception of a few points. The Mahalanobis distance seems to be more conservative than the isolation forest results. This is likely due to the fact that isolation forest is based on the number of splits it takes to isolate a point, which is able to measure non-linear outliers between variables.
-
-```{r}
-# Perform KNN on the auto data
-best_test_mse = 999999
-best_eps = -1
-best_minpts = -1
-
-# Find the optimal values for eps and MinPts
-for (k in 2:10) {
-  for (eps in seq(100, 175, 5)) {
-    # Create the model using the KNN results
-    knn_result = dbscan(auto_train, eps = eps, MinPts = k)
-    knn_outliers = which(knn_result$cluster == 0)
-    model = lm(mpg ~ ., data = auto_train[-knn_outliers, ])
-    
-    # Get the model's MSE on the test set
-    test_pred = predict(model, auto_test)
-    test_mse = mean((test_pred - auto_test$mpg)^2)
-    
-    # Update the best values if the model's MSE is better
-    if (test_mse < best_test_mse) {
-      best_test_mse = test_mse
-      best_eps = eps
-      best_minpts = k
-    }
-  }
-}
-
-# Best test MSE, eps, and MinPts values
-c(best_test_mse, best_eps, best_minpts)
-```
-
-KNN requires fine-tuning of its hyperparameters to achieve decent results. By iterating over potential k and eps values and testing the model's MSE on the test set, we can find the optimal values for k and eps. We can now use these values to perform KNN on the full data set and visualize the results.
-
-```{r}
-# Get the optimal KNN results on the full data set
-knn_result = dbscan(auto_df, eps = 150, MinPts = 2)
-knn_outliers = rep(0, nrow(auto_df))
-knn_outliers[knn_result$cluster == 0] = 1
-knn_outliers = as.factor(ifelse(knn_outliers == 1, "Outlier", "Not Outlier"))
-```
-
-```{r}
-# Plot the KNN outliers on horsepower vs mpg
-ggplot(auto_df, aes(x = horsepower, y = mpg, color = knn_outliers)) + 
-  geom_point() + 
-  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
-  labs(title = "Visualizing KNN Outliers on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "KNN Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
-  theme_minimal()
-```
-
-```{r}
-# Plot the KNN outliers on acceleration vs mpg
-ggplot(auto_df, aes(x = acceleration, y = mpg, color = knn_outliers)) + 
-  geom_point() + 
-  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
-  labs(title = "Visualizing KNN Outliers on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="KNN Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
-  theme_minimal()
-```
-
-By hyper-parameter tuning the KNN, it turns out to be extremely conservative. It only detected one observation as an outlier, probably the most extreme outlier in the data set. This is a good example of why hyper-parameter tuning is important, as varying the parameters for KNN resulted in either too many or too few outliers. Additionally, the data was not scaled before performing KNN, which may have affected the results. Meanwhile, the other methods are not as affected by hyper-parameter tuning and scale of the data.
-
-To measure the performance of the outlier detection methods, we will use each of them to remove outliers from a training data set. Then, we will use this data to train a linear regression model. To measure the effectiveness of the methods, we use each regression model to predict a testing set (with outliers) and compare their test MSE performance. We expect that pre-processing the data with the most effective outlier detection method will allow the model to learn the unskewed, general trends in the data, which will cause it to perform the best on the test set.
-
-```{r}
-# Create a linear regression model on the original train and test sets
-original_lm = lm(mpg ~ ., data = auto_train)
-original_pred = predict(original_lm, auto_test)
-original_mse = mean((original_pred - auto_test$mpg)^2)
-original_mse # Test MSE without outlier removal
-```
-
-Our benchmark for the performance of the outlier detection methods is the test MSE of a linear regression model trained on the original training set. We will compare the test MSE of the models trained on the outlier-removed training sets to this benchmark of 14.6 test MSE.
-
-```{r}
-# Compute the outliers in the training set using Mahalanobis distance
-dst = mahalanobis(auto_train, colMeans(auto_train), cov(auto_train))
-cutoff = quantile(auto_dst, 0.95)
-mahal_outliers = which(dst > cutoff)
-
-# Model with outliers removed using Mahalanobis distance
-mahal_lm = lm(mpg ~ ., data = auto_train[dst <= cutoff, ])
-mahal_pred = predict(mahal_lm, auto_test)
-mahal_mse = mean((mahal_pred - auto_test$mpg)^2)
-mahal_mse # Test MSE using Mahalanobis distance outlier removal
-```
-
-Mahalanobis distance outlier removal actually increases the test MSE of the model. The issue is that the outliers are not necessarily errors in the data set: they provide some information to the model. Outliers in the Auto data set are observations with the extreme ends of variable values, but they could potentially contribute to less common trends in the data. The reduction in MSE could also be because Mahalanobis distance is a linear measure of distance, and the outliers in the data set may be non-linear. This means that the Mahalanobis distance is not able to correctly capture all outliers in the training data set.
-
-```{r}
-# Compute the outliers in the training set using Isolation Forest
-if_model = isolation.forest(auto_train, ntree = 500, nthreads = 1)
-if_outliers = predict(if_model, auto_train)
-if_outliers = as.factor(ifelse(if_outliers > .5, 1, 0))
-
-# Model with outliers removed using isolation forest
-if_lm = lm(mpg ~ ., data = auto_train[if_outliers == 0, ])
-if_pred = predict(if_lm, auto_test)
-if_mse = mean((if_pred - auto_test$mpg)^2)
-if_mse # Test MSE using Mahalanobis distance outlier removal
-```
-
-Isolation Forest performs better than the original and Mahalanobis distance models. This supports the idea that some of the outliers in the training set are non-linear, making it difficult for Mahalanobis distance to identify them. That being said, Isolation Forest has the same problem such that some of the removed outliers may contribute to the underlying trends in the data, especially because it is much more aggressive in removing outliers. The results shown here are highly dependent on what outliers are left in the testing set.
-
-```{r}
-# Compute the outliers in the training set using KNN
-knn_result = dbscan(auto_train, eps = 150, MinPts = 2) # Optimal parameters found earlier
-knn_outliers = which(knn_result$cluster == 0)
-
-# Model with outliers removed using KNN
-knn_lm = lm(mpg ~ ., data = auto_train[-knn_outliers, ])
-knn_pred = predict(model, auto_test)
-knn_mse = mean((knn_pred - auto_test$mpg)^2)
-knn_mse # Test MSE using KNN outlier removal
-```
-KNN has the worst test MSE of all the methods. It also only removed a single observation, and overall, it is much more conservative than the other methods. This also due to the hyper-parameter tuning, and other parameter combinations could produce more aggressive detection. Since it performed worse than the original model, it means that the one outlier it removed was a useful observation for the model.
-
-
 ## Simulated Data
 For this first section, we will generate a polynomial dataset and use Mahalanobis distance to detect outliers.
 
@@ -327,34 +121,6 @@ lof_r2
 ```
 
 
-
-```{r A}
-# This code is to generate simulated data with outliers
-# Generate a polynomial underlying, with random noise
-x1poly = runif(100, min = -1, max = 1)
-
-ypoly = 2*x1poly^2 + 3*x1poly + 4 + rnorm(100, mean = 0, sd = 1)
-plot(x1poly, ypoly, main = "Simulated Data", xlab = "x1", ylab = "y")
-
-# Add outliers
-outlierspoly = c(-0.4, 0, 0.2, 0.5, 0.8)
-x1poly = c(x1poly, outlierspoly)
-# outlieryvalues = c(1, -1, 1, -1, 1)
-ypoly = c(ypoly, mean(y))
-ypoly
-# Make only the outliers red 
-plot(x1poly, ypoly, main = "Simulated Data with Outliers", xlab = "x1", ylab = "y", col = ifelse(x1poly %in% outlierspoly, "red", "black"))
-
-# Calculate mahalabonis distance of each point to confirm outliers are outliers
-mahalabonispoly = mahalanobis(x = cbind(x1poly, ypoly), center = colMeans(cbind(x1poly, ypoly)), cov = cov(cbind(x1poly, ypoly)))
-mahalabonispoly
-# Find p-value of each point
-pvaluespoly = 1 - pchisq(mahalabonispoly, df = 2)
-# Any points with p-value < 0.01 are outliers, detect them
-outlierspoly = x1poly[pvaluespoly < 0.01]
-outlierspoly
-```
-
 ```{r B}
 # Same procedure, except with a mutlivariable underlying
 set.seed(1)
@@ -391,3 +157,321 @@ outlierscomplex
 
 ```{r C}
 ```
+
+
+
+## Real World Data:
+```{r}
+# Load the Auto data from ISLR package
+auto_df = Auto[, 1:6] # Only use the numeric data
+
+# Split the data into training and testing sets
+train_idx = sample(1:nrow(auto_df), 0.8 * nrow(auto_df))
+auto_train = auto_df[train_idx, ]
+auto_test = auto_df[-train_idx, ]
+```
+
+In real world data, outliers are a common occurence. Whether from human error or uncommon occurence, outliers can be both a nuisance and an object of interest. We will use the Auto data set from the ISLR2 package, which contains data on 392 cars from the 1970s and 1980s. The data set contains 6 numeric variables: mpg, cylinders, displacement, horsepower, weight, and acceleration. We will use these variables to detect outliers in the data. 
+
+A potential use for outlier detection is finding outstanding cars: outliers in their performance and details. However, for the purposes of our testing, we will compare outlier detection methods by their ability to improve model training. By training a linear regression model on data without outliers, we will try to find if it is able to better fit the general trends of the data and make more accurate predictions. We split the Auto data set into a training and testing set to compare the performance of our models.
+
+```{r}
+# Plot the pairwise data relationships
+plot(auto_df, pch = 20, main = "Auto Data Pairwise Relationships")
+```
+Many of the variables seem to be correlated, with some linear and some polynomial relationships. Looking at just the pairwise relationships, there are obviously at least a few outliers in the data. We can use Mahalanobis distance as a benchmark to detect outliers in the data. This will be used to compare our other methods' results.
+
+```{r}
+# Test if the numeric data has any outliers according to Mahalanobis distance
+auto_center = colMeans(auto_df)
+auto_cov = cov(auto_df)
+auto_dst = mahalanobis(auto_df, auto_center, auto_cov)
+auto_cutoff = qchisq(0.95, df = ncol(auto_df))
+
+nrow(auto_df[auto_dst > auto_cutoff, ]) # Number of observations considered outliers
+```
+
+Using Mahalanobis distance, we can see that there are 38 observations in the Auto data set that are considered outliers. We can visualize this by plotting the data and coloring the points based on their Mahalanobis distance. We can also plot the Mahalanobis distance ellipses for horsepower vs mpg and acceleration vs mpg, which gives us a reference for the outlier threshold if we were using just the two variables.
+
+```{r}
+# Create a scatter plot of horsepower vs mpg, coloring based on Mahalanobis distance
+hp_ellipse = as.data.frame(ellipse(cor(auto_df[, c(4, 1)]), scale = c(sd(auto_df[,4]), sd(auto_df[,1])), centre = c(auto_center[4], auto_center[1]), level = 0.95))
+
+ggplot(auto_df, aes(x = horsepower, y = mpg)) + 
+  geom_point(aes(color=auto_dst)) + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Mahalanobis Distance for Horsepower vs. MPG", x = "Horsepower", y = "MPG", color="Mahalanobis Distance") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+```
+
+```{r}
+# Create a scatter plot of acceleration vs mpg, coloring based on Mahalanobis distance
+acc_ellipse = as.data.frame(ellipse(cor(auto_df[, c(6, 1)]), scale = c(sd(auto_df[,6]), sd(auto_df[,1])), centre = c(auto_center[6], auto_center[1]), level = 0.95))
+
+ggplot(auto_df, aes(x = acceleration, y = mpg)) + 
+  geom_point(aes(color=auto_dst)) + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Mahalanobis Distance for Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Mahalanobis Distance") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+```
+
+It's important to note that these visuals are only depicting the Mahalanobis distance thresholds for two variables. The other variables also contribute to a point's Mahalanobis distance, so some outliers may be inside the ellipse. Furthermore, the cutoff for considering a point an outlier is about 13, so orangish points are considered outliers. Overall, Mahalanobis distance seems to be robust and somewhat conservative. We can use this as a benchmark to compare our other methods' results.
+
+```{r}
+# Perform isolation forest on the auto data
+if_model = isolation.forest(auto_df, ntrees = 500, nthreads = 1)
+if_pred = predict(if_model, auto_df)
+if_outliers = as.factor(ifelse(if_pred > 0.5, "Outlier", "Not Outlier"))
+
+length(if_outliers[if_outliers == "Outlier"]) # Number of outliers based on isolation forest
+```
+There are 49 outliers based on the isolation forest model. We can visualize this by plotting the data and coloring the points based on if the isolation forest predicted them as an outlier. We can also plot the Mahalanobis distance ellipses, which allows us to compare the isolation forest results to the Mahalanobis distance results.
+
+```{r}
+# Plot the isolation forest outliers on horsepower vs mpg
+ggplot(auto_df, aes(x = horsepower, y = mpg, color = if_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
+  labs(title = "Visualizing Isolation Forest on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+```{r}
+# Plot the isolation forest outliers on acceleration vs mpg
+ggplot(auto_df, aes(x = acceleration, y = mpg, color = if_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Isolation Forest on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="Isolation Forest Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+The results of using Isolation Forest is very similar to using Mahalanobis distance, with the exception of a few points. The Mahalanobis distance seems to be more conservative than the isolation forest results. This is likely due to the fact that isolation forest is based on the number of splits it takes to isolate a point, which is able to measure non-linear outliers between variables.
+
+```{r}
+# Perform Local Outlier Factor on the auto data
+lof_model = lof(auto_df, k = 5)
+lof_outliers = as.factor(ifelse(lof_model > 1.5, "Outlier", "Not Outlier"))
+length(lof_outliers[lof_outliers == "Outlier"]) # Number of observations considered outliers
+```
+There are 20 outliers based on the LOF model. We can visualize this by plotting the data and coloring the points based on if the LOF predicted them as an outlier. We can also plot the Mahalanobis distance ellipses, which allows us to compare the LOF results to the Mahalanobis distance results.
+
+```{r}
+# Plot the LOF outliers on horsepower vs mpg
+ggplot(auto_df, aes(x = horsepower, y = mpg, color = lof_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
+  labs(title = "Visualizing Local Outlier Factor on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "LOF Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+```{r}
+# Plot the LOF outliers on acceleration vs mpg
+ggplot(auto_df, aes(x = acceleration, y = mpg, color = lof_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Local Outlier Factor on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="LOF Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+The results of LOF have subtle differences from the previous Isolation Forest and Mahalanobis distance methods. Firstly, LOF is much more conservative than the other two methods, which is especially relevant to the points outside of the ellipse. Due to its basis on local density, LOF does not consider groups of outliers as outliers. This can be seen in the bottom right of the horsepower vs mpg plot, where there is a dense group of points outside the ellipse. That group is aggressively considered outliers by Isolation Forest and Mahalanobis distance, but not LOF.
+
+```{r}
+# Perform KNN on the auto data
+best_test_mse = 999999
+best_eps = -1
+best_minpts = -1
+
+# Find the optimal values for eps and MinPts
+for (k in 2:10) {
+  for (eps in seq(100, 175, 5)) {
+    # Create the model using the KNN results
+    knn_result = dbscan(auto_train, eps = eps, minPts = k)
+    knn_outliers = which(knn_result$cluster == 0)
+    model = lm(mpg ~ ., data = auto_train[-knn_outliers, ])
+    
+    # Get the model's MSE on the test set
+    test_pred = predict(model, auto_test)
+    test_mse = mean((test_pred - auto_test$mpg)^2)
+    
+    # Update the best values if the model's MSE is better
+    if (test_mse < best_test_mse) {
+      best_test_mse = test_mse
+      best_eps = eps
+      best_minpts = k
+    }
+  }
+}
+
+# Best test MSE, eps, and MinPts values
+c(best_test_mse, best_eps, best_minpts)
+```
+
+KNN requires fine-tuning of its hyperparameters to achieve decent results. By iterating over potential k and eps values and testing the model's MSE on the test set, we can find the optimal values for k and eps. We can now use these values to perform KNN on the full data set and visualize the results.
+
+```{r}
+# Get the optimal KNN results on the full data set
+knn_result = dbscan(auto_df, eps = 150, minPts = 2)
+knn_outliers = rep(0, nrow(auto_df))
+knn_outliers[knn_result$cluster == 0] = 1
+knn_outliers = as.factor(ifelse(knn_outliers == 1, "Outlier", "Not Outlier"))
+```
+
+```{r}
+# Plot the KNN outliers on horsepower vs mpg
+ggplot(auto_df, aes(x = horsepower, y = mpg, color = knn_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = hp_ellipse, alpha = 0.2, color = "blue", fill = "blue") +
+  labs(title = "Visualizing KNN Outliers on Horsepower vs. MPG", x = "Acceleration", y = "MPG", color = "KNN Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+```{r}
+# Plot the KNN outliers on acceleration vs mpg
+ggplot(auto_df, aes(x = acceleration, y = mpg, color = knn_outliers)) + 
+  geom_point() + 
+  geom_polygon(data = acc_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing KNN Outliers on Acceleration vs. MPG", x = "Acceleration", y = "MPG", color="KNN Result", caption = "\nBlue ellipse represents Mahalanobis distance outlier threshold") +
+  theme_minimal()
+```
+
+By hyper-parameter tuning the KNN, it turns out to be extremely conservative. It only detected one observation as an outlier, probably the most extreme outlier in the data set. This is a good example of why hyper-parameter tuning is important, as varying the parameters for KNN resulted in either too many or too few outliers. Additionally, the data was not scaled before performing KNN, which may have affected the results. Meanwhile, the other methods are not as affected by hyper-parameter tuning and scale of the data.
+
+To measure the performance of the outlier detection methods, we will use each of them to remove outliers from a training data set. Then, we will use this data to train a linear regression model. To measure the effectiveness of the methods, we use each regression model to predict a testing set (with outliers) and compare their test MSE performance. We expect that pre-processing the data with the most effective outlier detection method will allow the model to learn the unskewed, general trends in the data, which will cause it to perform the best on the test set.
+
+```{r}
+# Create a linear regression model on the original train and test sets
+original_lm = lm(mpg ~ ., data = auto_train)
+original_pred = predict(original_lm, auto_test)
+original_mse = mean((original_pred - auto_test$mpg)^2)
+original_mse # Test MSE without outlier removal
+```
+
+Our benchmark for the performance of the outlier detection methods is the test MSE of a linear regression model trained on the original training set. We will compare the test MSE of the models trained on the outlier-removed training sets to this benchmark of 14.6 test MSE.
+
+```{r}
+# Compute the outliers in the training set using Mahalanobis distance
+dst = mahalanobis(auto_train, colMeans(auto_train), cov(auto_train))
+cutoff = quantile(auto_dst, 0.95)
+mahal_outliers = which(dst > cutoff)
+
+# Model with outliers removed using Mahalanobis distance
+mahal_lm = lm(mpg ~ ., data = auto_train[dst <= cutoff, ])
+mahal_pred = predict(mahal_lm, auto_test)
+mahal_mse = mean((mahal_pred - auto_test$mpg)^2)
+mahal_mse # Test MSE using Mahalanobis distance outlier removal
+```
+
+Mahalanobis distance outlier removal actually increases the test MSE of the model. The issue is that the outliers are not necessarily errors in the data set: they provide some information to the model. Outliers in the Auto data set are observations with the extreme ends of variable values, but they could potentially contribute to less common trends in the data. The reduction in MSE could also be because Mahalanobis distance is a linear measure of distance, and the outliers in the data set may be non-linear. This means that the Mahalanobis distance is not able to correctly capture all outliers in the training data set.
+
+```{r}
+# Compute the outliers in the training set using Isolation Forest
+if_model = isolation.forest(auto_train, ntree = 500, nthreads = 1)
+if_outliers = predict(if_model, auto_train)
+if_outliers = as.factor(ifelse(if_outliers > .5, 1, 0))
+
+# Model with outliers removed using isolation forest
+if_lm = lm(mpg ~ ., data = auto_train[if_outliers == 0, ])
+if_pred = predict(if_lm, auto_test)
+if_mse = mean((if_pred - auto_test$mpg)^2)
+if_mse # Test MSE using Mahalanobis distance outlier removal
+```
+
+Isolation Forest performs better than the original and Mahalanobis distance models. This supports the idea that some of the outliers in the training set are non-linear, making it difficult for Mahalanobis distance to identify them. That being said, Isolation Forest has the same problem such that some of the removed outliers may contribute to the underlying trends in the data, especially because it is much more aggressive in removing outliers. The results shown here are highly dependent on what outliers are left in the testing set.
+
+```{r}
+# Compute the outliers in the training set using LOF
+lof_model = lof(auto_train, k = 5)
+
+# Model with outliers removed using LOF
+lof_lm = lm(mpg ~ ., data = auto_train[lof_model < 1.5,])
+lof_pred = predict(lof_lm, auto_test)
+lof_mse = mean((lof_pred - auto_test$mpg)^2)
+lof_mse # Test MSE using Mahalanobis distance outlier removal
+```
+
+LOF performs better than the original and Mahalanobis distance models. However, it also performs slightly worse than the Isolation Forest. This makes sense because LOF is able to capture non-linear outliers in the data, similar to Isolation Forest. Additionally, LOF with the given parameters is less aggressive than Isolation Forest, which can sometimes prevent removing useful observations. Overall, LOF seems to perform similarly to Isolation Forest.
+
+```{r}
+# Compute the outliers in the training set using KNN
+knn_result = dbscan(auto_train, eps = 150, MinPts = 2) # Optimal parameters found earlier
+knn_outliers = which(knn_result$cluster == 0)
+
+# Model with outliers removed using KNN
+knn_lm = lm(mpg ~ ., data = auto_train[-knn_outliers, ])
+knn_pred = predict(model, auto_test)
+knn_mse = mean((knn_pred - auto_test$mpg)^2)
+knn_mse # Test MSE using KNN outlier removal
+```
+
+KNN has the worst test MSE of all the methods. It also only removed a single observation, and overall, it is much more conservative than the other methods. This also due to the hyper-parameter tuning, and other parameter combinations could produce more aggressive detection. Since it performed worse than the original model, it means that the one outlier it removed was a useful observation for the model.
+
+```{r}
+# Plot the test MSE of each model
+mse_df = data.frame(original_mse, mahal_mse, if_mse, lof_mse, knn_mse)
+mse_df = gather(mse_df, key = "model", value = "mse")
+ggplot(mse_df, aes(x = model, y = mse)) + 
+  geom_bar(stat = "identity", color = "lightcoral", fill = "lightcoral") + 
+  geom_hline(yintercept = original_mse, color = "black", linetype = "dashed") +
+  labs(x = "Model", y = "Test MSE", title = "Test MSE of Each Method's Model") +
+  theme_minimal() +
+  scale_x_discrete(labels = c("Isolation Forest", "KNN", "LOF", "Mahalanobis Distance", "Original")) +
+  coord_cartesian(ylim = c(10, 16))
+```
+From our results, we can see that Isolation Forest and LOF performed relatively the best. They had a slight improvement on the test MSE when we removed their outliers from the training set. This supports the idea that using outlier detection on training data can prevent overfitting and uncommon outliers from skewing the model. It is important to take these results with a grain of salt, however, because the results are highly dependent on the outliers that are left in the testing set. Furthermore, it is not always beneficial to remove extreme data points, because it can give important information to the model, and data removal is more suitable for observations known to be errors. Additionally, the results are dependent on the hyper-parameters chosen for each method. For example, KNN performed the worst, but it was also the least aggressive in removing outliers. If we had chosen a different set of hyper-parameters, it could have a vastly different performance.
+
+We can further explore the results by comparing R squared. By using each method to remove outliers on the full data set, we can create a linear regression model and compare the R squared of each model. It is important to note that this is not a perfect comparison, because large amounts of removals would increase R squared by making the data as simple as possible. However, it can still give us a general idea of how well each method performs for finding general trends in the data.
+
+```{r}
+# Compute the R squared of the model using the full data
+original_lm = lm(mpg ~ ., data = auto_df)
+original_r2 = summary(original_lm)$r.squared # R squared of original model
+original_r2
+```
+
+```{r}
+# Compute the R squared of the model using the full data without outliers from Mahalanobis distance
+mahal_lm = lm(mpg ~ ., data = auto_df[auto_dst < auto_cutoff, ])
+mahal_r2 = summary(mahal_lm)$r.squared # R squared of Mahalanobis distance model
+mahal_r2
+```
+
+```{r}
+# Compute the R squared of the model using the full data without outliers from Isolation Forest
+if_model = isolation.forest(auto_df, ntrees = 500, nthreads = 1)
+if_pred = predict(if_model, auto_df)
+if_lm = lm(mpg ~ ., data = auto_df[if_pred < .5, ])
+if_r2 = summary(if_lm)$r.squared # R squared of Isolation Forest model
+if_r2
+```
+
+```{r}
+# Compute the R squared of the model using the full data without outliers from Isolation Forest
+lof_model = lof(auto_df, k = 5)
+lof_lm = lm(mpg ~ ., data = auto_df[lof_model < 1.5, ])
+lof_r2 = summary(lof_lm)$r.squared # R squared of Isolation Forest model
+lof_r2
+```
+
+```{r}
+# Compute the R squared of the model using the full data without outliers from KNN
+knn_result = dbscan(auto_df, eps = 150, minPts = 2)
+knn_outliers = which(knn_result$cluster == 0)
+knn_lm = lm(mpg ~ ., data = auto_df[-knn_outliers, ])
+knn_r2 = summary(knn_lm)$r.squared # R squared of KNN model
+knn_r2
+```
+
+```{r}
+# Plot the R squared of each model
+r2_df = data.frame(original_r2, mahal_r2, if_r2, lof_r2, knn_r2)
+r2_df = gather(r2_df, key = "model", value = "r2")
+ggplot(r2_df, aes(x = model, y = r2)) + 
+  geom_bar(stat = "identity", color = "lightcoral", fill = "lightcoral") + 
+  geom_hline(yintercept = original_r2, color = "black", linetype = "dashed") +
+  labs(x = "Model", y = "R Squared", title = "R Squared of Each Method's Model on Full Data") +
+  theme_minimal() +
+  scale_x_discrete(labels = c("Isolation Forest", "KNN", "LOF", "Mahalanobis Distance", "Original")) +
+  coord_cartesian(ylim = c(0.6, 0.8))
+```
+From our results, we can see that Isolation Forest and Mahalanobis distance performed the best. They had a slight improvement on the R squared when we removed their outliers from the data. Again, it is natural that removing extreme points will improve the R squared of a model, but it does not mean the model is necessarily better. Being able to predict uncommon points is valuable depending on the data and scenario. Furthermore, since removing more points results in the data being easier to model, more aggressive methods will perform better. This is supported by the fact that Isolation Forest and Mahalanobis distance both have the best R squared and remove the most observations. Overall, each method has its pros and cons, and it is important to understand the data and scenario before choosing a method. Important factors to think about: the number of outliers, are the outliers errors or extreme points, how aggressive do you want to detect outliers, is the data linear or non-linear, etc. These answers will help choose the best outlier detection method.
