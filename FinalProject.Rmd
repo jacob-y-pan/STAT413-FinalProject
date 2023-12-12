@@ -148,7 +148,7 @@ poly_train_if = poly_train[!poly_train$x1poly %in% if_outliers$x1poly, ]
 # Get data without the LOF outliers
 poly_train_lof = poly_train[!poly_train$x1poly %in% lof_outliers$x1poly, ]
 # Get data without the KNN outliers
-poly_train_knn = poly_train[!poly_train$x1poly %in% knn_outliers_pts$x1poly, ]
+poly_train_knn = poly_train[!poly_train$x1poly %in% knn_outliers$x1poly, ]
 # Generate models for all
 poly_lm = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train)
 poly_lm_mana = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_mana)
