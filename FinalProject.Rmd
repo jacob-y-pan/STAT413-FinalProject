@@ -16,14 +16,13 @@ library(dbscan)
 set.seed(1)
 ```
 
-
 ## Simulated Data
-For this first section, we will generate a polynomial dataset and use Mahalanobis distance to detect outliers.
+For this first section, we will generate a polynomial dataset.
 
 ```{r}
-# Generate simulated polynomial data, coloring based on Mahalanobis distance
-x1poly = runif(100, min = -1, max = 1)
-ypoly = 5*x1poly^2 + 2*x1poly + 4 + rnorm(100, mean = 0, sd = 1)
+# Generate simulated polynomial data
+x1poly = runif(50, min = -1, max = 1)
+ypoly = 5*x1poly^2 + 2*x1poly + 4 + rnorm(50, mean = 0, sd = 1)
 
 # Combine the data into a dataframe
 poly_df = data.frame(x1poly, ypoly)
@@ -35,8 +34,8 @@ We also want to add our explicit outliers - these will be points that are at lea
 
 ```{r}
 # Add explicit outliers
-coefficients_to_use = rnorm(4, mean = 3, sd = 1)
-poly_outliers = data.frame(x1poly = c(-0.4, 0, 0.4, 0.6), ypoly = c(mean(poly_train$ypoly) + coefficients_to_use[1]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[2]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[3]*sd(poly_train$ypoly), mean(poly_train$ypoly) + coefficients_to_use[4]*sd(poly_train$ypoly)))
+coefficients_to_use = rnorm(6, mean = 3, sd = 1)
+poly_outliers = data.frame(x1poly = c(-0.4, -0.2, 0, 0.2, 0.4, 0.6), ypoly = c(mean(poly_train$ypoly) + coefficients_to_use[1]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[2]*sd(poly_train$ypoly), mean(poly_train$ypoly) + -1 * coefficients_to_use[3]*sd(poly_train$ypoly), mean(poly_train$ypoly) + coefficients_to_use[4]*sd(poly_train$ypoly), mean(poly_train$ypoly) + coefficients_to_use[5]*sd(poly_train$ypoly), mean(poly_train$ypoly) + coefficients_to_use[6]*sd(poly_train$ypoly)))
 poly_outliers
 poly_train = rbind(poly_train, poly_outliers)
 ```
@@ -60,7 +59,30 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   theme_minimal()
 
 ```
-Now, we are going to local outlier factor to detect outliers in the simulated data.
+
+Now we are going to use Isolation Forest to detect outliers in the simulated data.
+
+```{r}
+# Use Isolation Forest to detect outliers
+if_model = isolation.forest(poly_train, ntree = 500, nthreads = 1)
+if_outliers_pred = predict(if_model, poly_train)
+if_outliers = poly_train[if_outliers_pred > .5, ]
+if_outliers
+```
+
+Let's plot with the Isolation Forest outliers colored.
+
+```{r}
+# Plot the data with the outliers
+ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
+  geom_point(aes(color=if_outliers_pred)) + 
+  geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing Isolation Forest on Simulated Data", x = "x1", y = "y", color="Isolation Forest") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+```
+
+Now, we are going to use local outlier factor to detect outliers in the simulated data.
 
 ```{r}
 # Use local outlier factor to detect outliers
@@ -69,7 +91,7 @@ lof_outliers = poly_train[lof > 1.5, ]
 lof_outliers
 ```
 
-Let's plot and compare to the Mahalanobis distance results.
+Let's plot with the local outliers colored..
 
 ```{r}
 # Plot the data with the outliers
@@ -79,30 +101,93 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   labs(title = "Visualizing Local Outlier Factor on Simulated Data", x = "x1", y = "y", color="Local Outlier Factor") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
+```
 
+Finally, we'll use KNN to detect outliers in the simulated data.
+
+```{r}
+# Use KNN to detect outliers
+# Perform KNN on the auto data
+best_test_mse = 999999
+best_eps = -1
+best_minpts = -1
+
+# Find the optimal values for eps and MinPts
+for (k in 2:5) {
+  for (eps in seq(0, 2, .1)) {
+    # Create the model using the KNN results
+    knn_result = dbscan(poly_train, eps = eps, minPts = k)
+    knn_outliers = which(knn_result$cluster == 0)
+    # Check if knn_outliers empty
+    if (length(knn_outliers) == 0 || length(knn_outliers) > 0.1 * nrow(poly_train)) {
+      next
+    }
+    model = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train[-knn_outliers, ])
+    
+    # Get the model's MSE on the test set
+    test_pred = predict(model, poly_train)
+    test_mse = mean((test_pred - poly_train$ypoly)^2)
+    
+    # Update the best values if the model's MSE is better
+    if (test_mse < best_test_mse) {
+      best_test_mse = test_mse
+      best_eps = eps
+      best_minpts = k
+    }
+  }
+}
+
+# Best test MSE, eps, and MinPts values
+c(best_test_mse, best_eps, best_minpts)
+knn_result = dbscan(poly_train, eps = best_eps, minPts = best_minpts) # Optimal parameters found in the loop
+knn_outliers = which(knn_result$cluster == 0)
+knn_outliers
+
+knn_outliers_pts = poly_train[knn_outliers, ]
+```
+Let's plot the data with the KNN outliers colored.
+
+```{r}
+# Plot the data with the outliers
+ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
+  geom_point(aes(color=knn_result$cluster)) + 
+  geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  labs(title = "Visualizing KNN on Simulated Data", x = "x1", y = "y", color="KNN") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
 ```
 
 Let's now generate a mutli-linear regression model using this train data after removing points based on Mahalanobis and then Local Outlier Factor, and then find the MSE with the test data.
 ```{r}
 # Get the training data without the Mahalanobis outliers by removing points that are in mana_outliers
 poly_train_mana = poly_train[!poly_train$x1poly %in% mana_outliers$x1poly, ]
+# Get data without the IF outliers
+poly_train_if = poly_train[!poly_train$x1poly %in% if_outliers$x1poly, ]
 # Get data without the LOF outliers
 poly_train_lof = poly_train[!poly_train$x1poly %in% lof_outliers$x1poly, ]
-
+# Get data without the KNN outliers
+poly_train_knn = poly_train[!poly_train$x1poly %in% knn_outliers_pts$x1poly, ]
 # Generate models for all
 poly_lm = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train)
 poly_lm_mana = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_mana)
+poly_lm_if = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_if)
 poly_lm_lof = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_lof)
-
+poly_train_knn = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train_knn)
 # Calculate MSE
 mana_mse = mean((poly_test$ypoly - predict(poly_lm_mana, poly_test))^2)
+if_mse = mean((poly_test$ypoly - predict(poly_lm_if, poly_test))^2)
 lof_mse = mean((poly_test$ypoly - predict(poly_lm_lof, poly_test))^2)
+knn_mse = mean((poly_test$ypoly - predict(poly_train_knn, poly_test))^2)
 all_mse = mean((poly_test$ypoly - predict(poly_lm, poly_test))^2)
 
-# Compare the MSEs
-all_mse
-mana_mse
-lof_mse
+# Compare the MSEs by plotting them
+mse_df = data.frame(mse = c(all_mse, mana_mse, if_mse, lof_mse, knn_mse), 
+                    method = c("All", "Mahalanobis", "Isolation Forest", "Local Outlier Factor", "KNN"))
+# Shrink y scale to make the plot more readable
+ggplot(mse_df, aes(x = method, y = mse)) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Comparing MSEs of Different Models", x = "Method", y = "MSE") +
+  theme_minimal()
 
 ```
 
@@ -112,53 +197,277 @@ Let's also compare the R-Squared values of the two models.
 # Calculate R-Squared
 all_r2 = summary(poly_lm)$r.squared
 mana_r2 = summary(poly_lm_mana)$r.squared
+if_r2 = summary(poly_lm_if)$r.squared
 lof_r2 = summary(poly_lm_lof)$r.squared
+knn_r2 = summary(poly_train_knn)$r.squared
 
-# Compare the R-Squared values
-all_r2
-mana_r2
-lof_r2
+# Compare the R-Squared values by plotting them
+r2_df = data.frame(r2 = c(all_r2, mana_r2, if_r2, lof_r2, knn_r2), 
+                   method = c("All", "Mahalanobis", "Isolation Forest", "Local Outlier Factor", "KNN"))
+# Shrink y scale to make the plot more readable
+ggplot(r2_df, aes(x = method, y = r2)) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Comparing R-Squared of Different Models", x = "Method", y = "R-Squared") +
+  theme_minimal()
 ```
+We can see that with MSE, Mahalanobis takes the crown, but with R-Sqaured Isolation Forest performs pretty well, with the same degree as Mahalanobis. Unfortunately in this case it seems as KNN and LOF don't perform well with MSE or R-Squared.
 
+Now we will do the same procedures with a multi-variable polynomial regression model. We will generate the data, add outliers, and then fit the model.
 
-```{r B}
+```{r}
 # Same procedure, except with a mutlivariable underlying
 set.seed(1)
-x1complex = runif(100, min = -1, max = 1)
-x2complex = runif(100, min = -1, max = 1)
+x1complex = runif(50, min = -1, max = 1)
+x2complex = runif(50, min = -1, max = 1)
 
-ycomplex = 2*x1complex^2 + 3*x1complex + 4 + 2*x2complex^2 + 3*x2complex + 4 + rnorm(100, mean = 0, sd = 1)
+ycomplex = 2*x1complex^2 + 3*x1complex + 4 + 2*x2complex^2 + 3*x2complex + 4 + rnorm(50, mean = 0, sd = 1)
+# Get mean of y's with only x1 complex
+x1mean = mean(ycomplex[x1complex > 0])
+x2mean = mean(ycomplex[x2complex > 0])
 
-plot(x1complex, ycomplex, main = "Simulated Data", xlab = "x1", ylab = "y")
-plot(x2complex, ycomplex, main = "Simulated Data", xlab = "x2", ylab = "y")
+# Make into data frame
+complex_data = data.frame(x1complex, x2complex, ycomplex)
+# Split into train and test
+complex_train = complex_data[1:40, ]
+complex_test = complex_data[41:50, ]
 
-outlierscomplexx1 = c(-0.4, 0, 0.2, 0.5)
-# Different x points for x2
-outlierscomplexx2 = c(-0.9, -0.5, 0.25, 0.8)
-x1complex = c(x1complex, outlierscomplexx1)
-x2complex = c(x2complex, outlierscomplexx2)
-ycomplex = c(ycomplex, 20, 20, 2, 1)
-
-plot(x1complex, ycomplex, main = "Simulated Data with Outliers", xlab = "x1", ylab = "y", col = ifelse(x1complex %in% outlierscomplexx1, "red", "black"))
-plot(x2complex, ycomplex, main = "Simulated Data with Outliers", xlab = "x2", ylab = "y", col = ifelse(x2complex %in% outlierscomplexx2, "red", "black"))
-
-maha1 = mahalanobis(x = cbind(x1complex, ycomplex), center = colMeans(cbind(x1complex, ycomplex)), cov = cov(cbind(x1complex, ycomplex)))
-maha2 = mahalanobis(x = cbind(x2complex, ycomplex), center = colMeans(cbind(x2complex, ycomplex)), cov = cov(cbind(x2complex, ycomplex)))
-
-pvalues1 = 1 - pchisq(maha1, df = 2)
-pvalues2 = 1 - pchisq(maha2, df = 2)
-
-outlierscomplexx1 = x1complex[pvalues1 < 0.01]
-outlierscomplexx2 = x2complex[pvalues2 < 0.01]
-# Table with outliers of x1 and x2 in different columns
-outlierscomplex = data.frame(outlierscomplexx1, outlierscomplexx2)
-outlierscomplex
 ```
 
-```{r C}
+Adding explicit outliers:
+
+```{r}
+# Create explicit outliers as similar to before
+coefficients_to_use = rnorm(7, mean=3, sd=1)
+# Create outliers for x1
+outlierscomplexx1 = c(-0.7, -0.3, -0.1, 0.1)
+# Create x values for x2 that are different points
+outlierscomplexx2 = c(-0.9, -0.2, 0, 0.6)
+# x values that are the same points for x1 and x2
+outlierscomplexx1x2 = c(-0.8, -0.4, 0.2)
+# Create y outlier values
+
+outlierscomplexy = c(x1mean - coefficients_to_use[1]*sd(ycomplex[x1complex > 0]), 
+                     x1mean + coefficients_to_use[2]*sd(ycomplex[x1complex > 0]), 
+                     x2mean + coefficients_to_use[3]*sd(ycomplex[x2complex > 0]), 
+                     x2mean - coefficients_to_use[4]*sd(ycomplex[x2complex > 0]), 
+                     mean(ycomplex) + coefficients_to_use[5]*sd(ycomplex),
+                     mean(ycomplex) - coefficients_to_use[6]*sd(ycomplex),
+                     mean(ycomplex) + coefficients_to_use[7]*sd(ycomplex))
+
+# Add the outliers to the data
+x1complex = c(complex_train$x1complex, outlierscomplexx1)
+x1complex = c(x1complex, outlierscomplexx1x2)
+x2complex = c(complex_train$x2complex, outlierscomplexx2)
+x2complex = c(x2complex, outlierscomplexx1x2)
+ycomplex = c(complex_train$ycomplex, outlierscomplexy)
+
+# Merge into train data
+complex_train = data.frame(x1complex, x2complex, ycomplex)
+complex_train
 ```
 
+Now we will calculate the mahanalobis distance for each point to determine outliers
+```{r}
+maha_dst = mahalanobis(complex_train, colMeans(complex_train), cov(complex_train))
+maha_cutoff = quantile(maha_dst, 0.95)
+maha_outliers = which(maha_dst > maha_cutoff)
+```
 
+Becuase this is 3-Dimensional, we will just plot y on x1 and x2 individually and the respective Mahalanobis distances.
+
+```{r}
+
+# Plot the data, x1 first
+ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
+  geom_point(aes(col=maha_dst)) +
+  labs(title = "Visualizing Mahalabonis on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+# Plot the data, x2 now
+ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
+  geom_point(aes(col=maha_dst)) +
+  labs(title = "Visualizing Mahalabonis on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+
+Using Isolation Forest
+```{r}
+if_model = isolation.forest(complex_train, ntree = 100, ndim = 2)
+if_outliers_pred = predict(if_model, complex_train)
+if_outliers = complex_train[if_outliers_pred > .5, ]
+if_outliers
+```
+
+```{r}
+# Plot the data, x1 first
+ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
+  geom_point(aes(col=if_outliers_pred)) +
+  labs(title = "Visualizing Isolation Forest on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+# Plot the data, x2 now
+ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
+  geom_point(aes(col=if_outliers_pred)) +
+  labs(title = "Visualizing Isolation Forest on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+
+Using local outlier factor:
+
+```{r}
+# Calculate LOF for x1 and x2 on y
+lofmodel = lof(complex_train, minPts = 5)
+lof_outliers = which(lofmodel > 1.5)
+lof_outliers
+```
+
+```{r}
+# Plot the data, x1 first
+ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
+  geom_point(aes(col=lofmodel)) +
+  labs(title = "Visualizing LOF on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+# Plot the data, x2 now
+ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
+  geom_point(aes(col=lofmodel)) +
+  labs(title = "Visualizing LOF on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+
+Using KNN
+
+```{r}
+# Use KNN to detect outliers
+# Perform KNN on the auto data
+best_test_mse = 999999
+best_eps = -1
+best_minpts = -1
+
+# Find the optimal values for eps and MinPts
+for (k in 2:5) {
+  for (eps in seq(0, 5, 0.5)) {
+    # Create the model using the KNN results
+    knn_result = dbscan(complex_train, eps = eps, minPts = k)
+    knn_outliers = which(knn_result$cluster == 0)
+    # Check if knn_outliers empty
+    if (length(knn_outliers) == 0 || length(knn_outliers) > 0.1 * nrow(complex_train)) {
+      next
+    }
+    model = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train[-knn_outliers, ])
+    
+    # Get the model's MSE on the test set
+    test_pred = predict(model, complex_train)
+    test_mse = mean((test_pred - complex_train$ycomplex)^2)
+    
+    # Update the best values if the model's MSE is better
+    if (test_mse < best_test_mse) {
+      best_test_mse = test_mse
+      best_eps = eps
+      best_minpts = k
+    }
+  }
+}
+
+# Best test MSE, eps, and MinPts values
+c(best_test_mse, best_eps, best_minpts)
+knn_result = dbscan(complex_train, eps = best_eps, minPts = best_minpts) # Optimal parameters found in the loop
+knn_outliers = which(knn_result$cluster == 0)
+knn_outliers
+```
+
+```{r}
+# Plot the data, x1 first
+ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
+  geom_point(aes(col=knn_result$cluster)) +
+  labs(title = "Visualizing KNN on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+# Plot the data, x2 now
+ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
+  geom_point(aes(col=knn_result$cluster)) +
+  labs(title = "Visualizing KNN on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  scale_color_gradient(low = "yellow", high = "red") +
+  theme_minimal()
+
+```
+
+Time to generate multi-linear regression models for all these methods!
+
+```{r}
+# Remove outliers from all methods
+# Remove from mana based on index
+complex_train_maha = complex_train[-maha_outliers, ]
+# Remove from if based on index (if_outliers is a dataframe)
+complex_train_if = complex_train[!complex_train$x1complex %in% if_outliers$x1complex, ]
+# Remove from lof
+complex_train_lof = complex_train[-lof_outliers, ]
+# Remove from knn
+complex_train_knn = complex_train[-knn_outliers, ]
+
+# Create a model with all data
+model_all = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train)
+# Create a model with mana outliers removed
+model_maha = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train_maha)
+# Create a model with if outliers removed
+model_if = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train_if)
+# Create a model with lof outliers removed
+model_lof = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train_lof)
+# Create a model with knn outliers removed
+model_knn = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train_knn)
+
+# Get the MSE for all models
+# All data
+all_mse = mean((complex_test$ycomplex - predict(model_all, complex_test))^2)
+# Mana
+maha_mse = mean((complex_test$ycomplex - predict(model_maha, complex_test))^2)
+# If
+if_mse = mean((complex_test$ycomplex - predict(model_if, complex_test))^2)
+# Lof
+lof_mse = mean((complex_test$ycomplex - predict(model_lof, complex_test))^2)
+# Knn
+knn_mse = mean((complex_test$ycomplex - predict(model_knn, complex_test))^2)
+
+# Plot MSEs
+mse_df = data.frame(method = c("All", "Maha", "If", "Lof", "Knn"), mse = c(all_mse, maha_mse, if_mse, lof_mse, knn_mse))
+ggplot(mse_df, aes(x = method, y = mse)) + 
+  geom_bar(stat = "identity") +
+  labs(title = "MSEs for Multivariable Simulated Data", x = "Method", y = "MSE") +
+  theme_minimal()
+
+```
+
+```{r}
+# R-Squared now
+# All data
+all_r2 = summary(model_all)$r.squared
+# Mana
+maha_r2 = summary(model_maha)$r.squared
+# If
+if_r2 = summary(model_if)$r.squared
+# Lof
+lof_r2 = summary(model_lof)$r.squared
+# Knn
+knn_r2 = summary(model_knn)$r.squared
+
+# Plot R-Squareds
+r2_df = data.frame(method = c("All", "Maha", "If", "Lof", "Knn"), r2 = c(all_r2, maha_r2, if_r2, lof_r2, knn_r2))
+ggplot(r2_df, aes(x = method, y = r2)) + 
+  geom_bar(stat = "identity") +
+  labs(title = "R-Squareds for Multivariable Simulated Data", x = "Method", y = "R-Squared") +
+  theme_minimal()
+
+```
 
 ## Real World Data:
 ```{r}
