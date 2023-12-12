@@ -436,7 +436,7 @@ ggplot(r2_df, aes(x = method, y = r2)) +
 ```
 These findings are quite interesting. As before, LOF is quite bad for both MSE and R-Squared and Isolation Forest does quite well. However, it is also the case where KNN performs quite good, in fact better than isolation forest. Both IF and KNN seem to do much better than the baseline of Mahalanobis distance, which is something worth noting.
 
-## Real World Data:
+# Real World Data:
 ```{r}
 # Load the Auto data from ISLR package
 auto_df = Auto[, 1:6] # Only use the numeric data
@@ -594,7 +594,7 @@ original_mse = mean((original_pred - auto_test$mpg)^2)
 original_mse # Test MSE without outlier removal
 ```
 
-Our benchmark for the performance of the outlier detection methods is the test MSE of a linear regression model trained on the original training set. We will compare the test MSE of the models trained on the outlier-removed training sets to this benchmark of 14.6 test MSE.
+Our benchmark for the performance of the outlier detection methods is the test MSE of a linear regression model trained on the original training set. We will compare the test MSE of the models trained on the outlier-removed training sets to this benchmark of 23.36 test MSE.
 
 ```{r}
 # Compute the outliers in the training set using Mahalanobis distance
@@ -624,7 +624,7 @@ if_mse = mean((if_pred - auto_test$mpg)^2)
 if_mse # Test MSE using Mahalanobis distance outlier removal
 ```
 
-Isolation Forest performs better than the original and Mahalanobis distance models. This supports the idea that some of the outliers in the training set are non-linear, making it difficult for Mahalanobis distance to identify them. That being said, Isolation Forest has the same problem such that some of the removed outliers may contribute to the underlying trends in the data, especially because it is much more aggressive in removing outliers. The results shown here are highly dependent on what outliers are left in the testing set.
+Isolation Forest performs worse than the original and Mahalanobis distance models. Isolation Forest has the same problem as Mahalanobis distance such that some of the removed outliers may contribute to the underlying trends in the data, especially because it is much more aggressive in removing outliers. The results shown here are highly dependent on what outliers are left in the testing set.
 
 ```{r}
 # Compute the outliers in the training set using LOF
@@ -637,7 +637,7 @@ lof_mse = mean((lof_pred - auto_test$mpg)^2)
 lof_mse # Test MSE using Mahalanobis distance outlier removal
 ```
 
-LOF performs better than the original and Mahalanobis distance models. However, it also performs slightly worse than the Isolation Forest. This makes sense because LOF is able to capture non-linear outliers in the data, similar to Isolation Forest. Additionally, LOF with the given parameters is less aggressive than Isolation Forest, which can sometimes prevent removing useful observations. Overall, LOF seems to perform similarly to Isolation Forest.
+LOF performs better than the Isolation Forest and Mahalanobis distance models. However, it also performs slightly worse than the original data. This is likely because LOF is not as aggressive as Isolation Forest in removing outliers, and many of these outliers contribute information to the model.
 
 ```{r}
 # Compute the outliers in the training set using KNN
@@ -651,7 +651,7 @@ knn_mse = mean((knn_pred - auto_test$mpg)^2)
 knn_mse # Test MSE using KNN outlier removal
 ```
 
-KNN has the worst test MSE of all the methods. This is partially due to the hyper-parameter tuning, and other parameter combinations could produce more beneficial results. Furthermore, since the number of observations decreased from the train/testing split, KNN distances naturally increase for all points. Overall, since it performed worse than the original model, it means that the outliers it removed were useful observations for the model.
+KNN has among the worst test MSE of all the methods. This is partially due to the hyper-parameter tuning, and other parameter combinations could produce more beneficial results. Furthermore, since the number of observations decreased from the train/testing split, KNN distances naturally increase for all points. Overall, since it performed worse than the original model, it means that the outliers it removed were useful observations for the model.
 
 ```{r}
 # Plot the test MSE of each model
@@ -663,9 +663,9 @@ ggplot(mse_df, aes(x = model, y = mse)) +
   labs(x = "Model", y = "Test MSE", title = "Test MSE of Each Method's Model") +
   theme_minimal() +
   scale_x_discrete(labels = c("Isolation Forest", "KNN", "LOF", "Mahalanobis Distance", "Original")) +
-  coord_cartesian(ylim = c(10, 16))
+  coord_cartesian(ylim = c(20, 28))
 ```
-From our results, we can see that Isolation Forest and LOF performed relatively the best. They had a slight improvement on the test MSE when we removed their outliers from the training set. This supports the idea that using outlier detection on training data can prevent overfitting and uncommon outliers from skewing the model. It is important to take these results with a grain of salt, however, because the results are highly dependent on the outliers that are left in the testing set. Furthermore, it is not always beneficial to remove extreme data points, because it can give important information to the model, and data removal is more suitable for observations known to be errors. Additionally, the results are dependent on the hyper-parameters chosen for each method. For example, KNN performed the worst, but it was also the least aggressive in removing outliers. If we had chosen a different set of hyper-parameters, it could have a vastly different performance.
+From our results, we can see that the outlier removal lowers the MSE when compared to the original data. This supports the idea that it is not always beneficial to remove extreme data points, because it can give important information to the model, and data removal is more suitable for observations known to be errors. Also, the results are highly dependent on the outliers that are left in the training and testing set. Futhermore, the results are dependent on the hyper-parameters chosen for each method. For example, KNN performed amongst worst, but it was also the least aggressive in removing outliers. If we had chosen a different set of hyper-parameters, it could have a vastly different performance.
 
 We can further explore the results by comparing R squared. By using each method to remove outliers on the full data set, we can create a linear regression model and compare the R squared of each model. It is important to note that this is not a perfect comparison, because large amounts of removals would increase R squared by making the data as simple as possible. However, it can still give us a general idea of how well each method performs for finding general trends in the data.
 
