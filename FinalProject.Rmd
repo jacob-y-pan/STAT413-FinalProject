@@ -634,7 +634,7 @@ knn_outliers = which(knn_dist > 80)
 
 # Model with outliers removed using KNN
 knn_lm = lm(mpg ~ ., data = auto_train[-knn_outliers, ])
-knn_pred = predict(model, auto_test)
+knn_pred = predict(knn_lm, auto_test)
 knn_mse = mean((knn_pred - auto_test$mpg)^2)
 knn_mse # Test MSE using KNN outlier removal
 ```
