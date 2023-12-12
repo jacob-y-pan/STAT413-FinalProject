@@ -45,7 +45,7 @@ poly_outliers
 poly_train = rbind(poly_train, poly_outliers)
 ```
 
-Now let's calculate the Mahalanobis distance for each point in the training set, and plot the data with the Mahalanobis distance ellipses. Note that for each plot we make, an x is marked on points considered outliers.
+Now let's calculate the Mahalanobis distance for each point in the training set based off of the 95th percentile, and plot the data with the Mahalanobis distance ellipses. Note that for each plot we make, an x is marked on points considered outliers by the respective method.
 
 ```{r}
 mana_dst = mahalanobis(poly_train, colMeans(poly_train), cov(poly_train))
@@ -65,8 +65,9 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   theme_minimal()
 
 ```
+We can see an ellipse that encompasses the 95th percentile of spread from all the points. We can see that Mahalanobis distance was pretty conservative on labeling outliers, as it only labeled 2 points as outliers.
 
-Now we are going to use Isolation Forest to detect outliers in the simulated data.
+Now we are going to use Isolation Forest to detect outliers in the simulated data. The threshold of 0.5 is used because if it is above 0.5 probability of being an outlier we will consider it as such. We decided to do 500 for ntrees because our observations saw that this number of trees seemed to give good performance in terms of detecting actual outliers.
 
 ```{r}
 # Use Isolation Forest to detect outliers
@@ -88,8 +89,10 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 ```
+Here we can see that Isolation Forest was much more aggressive in labeling outliers, as it labeled 12 points as outliers. The measure seems to be on the higher side for a lot of points even if they may be on the distribution.
 
-Now, we are going to use local outlier factor to detect outliers in the simulated data.
+
+Now, we are going to use local outlier factor to detect outliers in the simulated data. I use the number 1.5 as the threshold as anything above 1 could be considered an outlier.
 
 ```{r}
 # Use local outlier factor to detect outliers
@@ -110,8 +113,9 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 ```
+Local outlier factor seems to be somewhat conservative in labelling points, but has a large quantity of points that seem on the larger side.
 
-Finally, we'll use KNN to detect outliers in the simulated data.
+Finally, we'll use KNN to detect outliers in the simulated data. We use 5 as we saw K=5 as a relatively reliable number to use, and used 1.5 as the threshold for this example as a point at least 1.5 units away from the other points would be reasonable to designate as an outlier.
 
 ```{r}
 # Use KNN to detect outliers
@@ -132,8 +136,9 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 ```
+KNN Seems to be very conservative in labelling points compared to the other methods, as it only labels 4 points as outliers.
 
-Let's now generate a mutli-linear regression model using this train data after removing points based on Mahalanobis and then Local Outlier Factor, and then find the MSE with the test data.
+Let's now generate a mutli-linear regression model using this trainng data, and using it to predict the test data to calculate the MSE's for each method. We first generate a model for a quadratic function without removing any outliers, then create regression models for each method removing its respective determined outliers.
 
 ```{r}
 # Get the training data without the Mahalanobis outliers by removing points that are in mana_outliers
@@ -168,7 +173,7 @@ ggplot(mse_df, aes(x = method, y = mse)) +
 
 ```
 
-Let's also compare the R-Squared values of the two models.
+Let's also compare the R-Squared values of the methods.
 
 ```{r}
 # Calculate R-Squared
@@ -187,7 +192,7 @@ ggplot(r2_df, aes(x = method, y = r2)) +
   labs(title = "Comparing R-Squared of Different Models", x = "Method", y = "R-Squared") +
   theme_minimal()
 ```
-We can see that with MSE, Mahalanobis takes the crown, but with R-Sqaured Isolation Forest performs pretty well, with the same degree as Mahalanobis. Unfortunately in this case it seems as KNN and LOF don't perform well with MSE or R-Squared.
+We can see that with MSE, Mahalanobis does pretty well (for this run), but with R-Sqaured Isolation Forest performs pretty well, better than Mahalanobis. In this run interesetingly KNN seems to have performed pretty well in getting the obvious outliers, so it seems as the conservative approach worked pretty well. However, with the real-world data it seems to not perform really well, which we will talk about in that section. Unfortunately in this case it seems as LOF don't perform well with MSE or R-Squared.
 
 ### Complex Simulation
 Now we will do the same procedures with a multi-variable polynomial regression model. We will generate the data, add outliers, and then fit the model.
@@ -211,7 +216,7 @@ complex_test = complex_data[41:50, ]
 
 ```
 
-Adding explicit outliers:
+Adding explicit outliers, with outliers for only x1 and then only x2, and then points that are the same for x1 and x2 that should be outliers for both, as we add around 3 standard deviations to the respective mean (x1's mean, x2's mean, and y's overall mean respectively):
 
 ```{r}
 # Create explicit outliers as similar to before
@@ -244,7 +249,7 @@ complex_train = data.frame(x1complex, x2complex, ycomplex)
 complex_train
 ```
 
-Now we will calculate the mahanalobis distance for each point to determine outliers
+Now we will calculate the mahanalobis distance for each point to determine outliers. Unless otherwise noted the hyperparameters will be the same as the simple model.
 ```{r}
 maha_dst = mahalanobis(complex_train, colMeans(complex_train), cov(complex_train))
 maha_cutoff = quantile(maha_dst, 0.95)
@@ -272,10 +277,12 @@ ggplot(complex_train, aes(x = x2complex, y = ycomplex)) +
   theme_minimal()
 
 ```
+We can see that the Mahalanobis distance is not as agressive as it was in the simple model.
+
 
 Using Isolation Forest
 ```{r}
-if_model = isolation.forest(complex_train, ntree = 100, ndim = 2)
+if_model = isolation.forest(complex_train, ntree = 500, ndim = 2)
 if_outliers_pred = predict(if_model, complex_train)
 if_outliers = complex_train[if_outliers_pred > .5, ]
 if_outliers
@@ -299,6 +306,7 @@ ggplot(complex_train, aes(x = x2complex, y = ycomplex)) +
   theme_minimal()
 
 ```
+Isolation forest has marked the obvious outliers, but has also marked points (with our threshold) that seem to be within the distribution. It seems like points that are correlated in x2's dimension but are outliers in x1's are indeed marked as outliers.
 
 Using local outlier factor:
 
@@ -327,6 +335,7 @@ ggplot(complex_train, aes(x = x2complex, y = ycomplex)) +
   theme_minimal()
 
 ```
+LOF was significantly less agressive here than in the other models, marking just the "obvious" ones.
 
 Using KNN
 
@@ -356,6 +365,8 @@ ggplot(complex_train, aes(x = x2complex, y = ycomplex)) +
   theme_minimal()
 
 ```
+KNN is quite aggressive, marking points that are somewhat close to the distribution. One can also see the distance from each points' 5th nearest neighbor, so perhaps the points are looking at the outliers as their 5th nearest neighbor.
+
 
 Time to generate multi-linear regression models for all these methods!
 
@@ -368,7 +379,7 @@ complex_train_if = complex_train[!complex_train$x1complex %in% if_outliers$x1com
 # Remove from lof
 complex_train_lof = complex_train[-lof_outliers, ]
 # Remove from knn
-complex_train_knn = complex_train[-knn_outliers, ]
+complex_train_knn = complex_train[!complex_train$x1complex %in% knn_outliers$x1complex, ]
 
 # Create a model with all data
 model_all = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train)
@@ -423,6 +434,7 @@ ggplot(r2_df, aes(x = method, y = r2)) +
   theme_minimal()
 
 ```
+These findings are quite interesting. As before, LOF is quite bad for both MSE and R-Squared and Isolation Forest does quite well. However, it is also the case where KNN performs quite good, in fact better than isolation forest. Both IF and KNN seem to do much better than the baseline of Mahalanobis distance, which is something worth noting.
 
 ## Real World Data:
 ```{r}
