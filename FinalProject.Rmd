@@ -129,7 +129,7 @@ Let's plot the data with the KNN outliers colored.
 ```{r}
 # Plot the data with the outliers
 ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
-  geom_point(aes(color=knn_result$cluster)) + 
+  geom_point(aes(color=knn_dist)) + 
   geom_point(data = knn_outliers, shape = 4, size=3, alpha=0.2) +
   geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing KNN on Simulated Data", x = "x1", y = "y", color="KNN") +
