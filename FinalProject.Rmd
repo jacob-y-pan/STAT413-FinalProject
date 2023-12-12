@@ -12,13 +12,18 @@ library(ISLR2)
 library(isotree)
 library(ellipse)
 library(dbscan)
+library(FNN)
 
 set.seed(1)
 ```
+We decided to split our data and test each method into two sections: Simulated data, and real-world data. This is so we could see how it would work with both datasets, specifically when adding known, intentional outliers versus real-world but questionable outliers. We first run on all the methods we described, and then use MSE and R-Squared to compare performances of each method versus the controls of running on Mahalanobis Distance and also not removing any outliers at all.
 
 ## Simulated Data
-For this first section, we will generate a polynomial dataset.
 
+
+### Simple Polynomial Simulation
+For our first simulation, I generated a simple quadratic polynomial based off of this equation:
+$$y = 5x^2 + 2x + 4$$
 ```{r}
 # Generate simulated polynomial data
 x1poly = runif(50, min = -1, max = 1)
@@ -27,10 +32,10 @@ ypoly = 5*x1poly^2 + 2*x1poly + 4 + rnorm(50, mean = 0, sd = 1)
 # Combine the data into a dataframe
 poly_df = data.frame(x1poly, ypoly)
 # Split into training and testing sets
-poly_train = poly_df[1:80, ]
-poly_test = poly_df[81:100, ]
+poly_train = poly_df[1:40, ]
+poly_test = poly_df[41:50, ]
 ```
-We also want to add our explicit outliers - these will be points that are at least 3 standard deviations away from the mean.
+We also want to add our explicit outliers - these will be points that are at least 3 standard deviations away from the mean. Note that unlike real data, we KNOW these are outliers, and this will be of note later on. We also added 6 points to keep a ratio of around 10% outliers to total points.
 
 ```{r}
 # Add explicit outliers
@@ -40,7 +45,7 @@ poly_outliers
 poly_train = rbind(poly_train, poly_outliers)
 ```
 
-Now let's calculate the Mahalanobis distance for each point in the training set, and plot the data with the Mahalanobis distance ellipses.
+Now let's calculate the Mahalanobis distance for each point in the training set, and plot the data with the Mahalanobis distance ellipses. Note that for each plot we make, an x is marked on points considered outliers.
 
 ```{r}
 mana_dst = mahalanobis(poly_train, colMeans(poly_train), cov(poly_train))
@@ -53,6 +58,7 @@ mana_outliers
 poly_ellipse = as.data.frame(ellipse(cor(poly_train), scale=c(sd(poly_train$x1poly), sd(poly_train$ypoly)), centre=c(mean(poly_train$x1poly), mean(poly_train$ypoly)), level=0.95))
 ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
   geom_point(aes(color=mana_dst)) + 
+  geom_point(data = mana_outliers, shape = 4, size=3) +
   geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing Mahalanobis Distance on Simulated Data", x = "x1", y = "y", color="Mahalanobis distance") +
   scale_color_gradient(low = "yellow", high = "red") +
@@ -77,6 +83,7 @@ Let's plot with the Isolation Forest outliers colored.
 ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
   geom_point(aes(color=if_outliers_pred)) + 
   geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
+  geom_point(data = if_outliers, shape = 4, size=3, alpha=0.4) +
   labs(title = "Visualizing Isolation Forest on Simulated Data", x = "x1", y = "y", color="Isolation Forest") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
@@ -96,7 +103,8 @@ Let's plot with the local outliers colored..
 ```{r}
 # Plot the data with the outliers
 ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
-  geom_point(aes(color=lof)) + 
+  geom_point(aes(color=lof)) +
+  geom_point(data = lof_outliers, shape = 4, size=3, alpha=0.4) +
   geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing Local Outlier Factor on Simulated Data", x = "x1", y = "y", color="Local Outlier Factor") +
   scale_color_gradient(low = "yellow", high = "red") +
@@ -107,43 +115,10 @@ Finally, we'll use KNN to detect outliers in the simulated data.
 
 ```{r}
 # Use KNN to detect outliers
-# Perform KNN on the auto data
-best_test_mse = 999999
-best_eps = -1
-best_minpts = -1
-
-# Find the optimal values for eps and MinPts
-for (k in 2:5) {
-  for (eps in seq(0, 2, .1)) {
-    # Create the model using the KNN results
-    knn_result = dbscan(poly_train, eps = eps, minPts = k)
-    knn_outliers = which(knn_result$cluster == 0)
-    # Check if knn_outliers empty
-    if (length(knn_outliers) == 0 || length(knn_outliers) > 0.1 * nrow(poly_train)) {
-      next
-    }
-    model = lm(ypoly ~ x1poly+I(x1poly^2), data = poly_train[-knn_outliers, ])
-    
-    # Get the model's MSE on the test set
-    test_pred = predict(model, poly_train)
-    test_mse = mean((test_pred - poly_train$ypoly)^2)
-    
-    # Update the best values if the model's MSE is better
-    if (test_mse < best_test_mse) {
-      best_test_mse = test_mse
-      best_eps = eps
-      best_minpts = k
-    }
-  }
-}
-
-# Best test MSE, eps, and MinPts values
-c(best_test_mse, best_eps, best_minpts)
-knn_result = dbscan(poly_train, eps = best_eps, minPts = best_minpts) # Optimal parameters found in the loop
-knn_outliers = which(knn_result$cluster == 0)
+knn_model = get.knn(poly_train, k = 5)
+knn_dist = knn_model$nn.dist[,5]
+knn_outliers = poly_train[knn_dist > 1.5, ]
 knn_outliers
-
-knn_outliers_pts = poly_train[knn_outliers, ]
 ```
 Let's plot the data with the KNN outliers colored.
 
@@ -151,6 +126,7 @@ Let's plot the data with the KNN outliers colored.
 # Plot the data with the outliers
 ggplot(poly_train, aes(x = x1poly, y = ypoly)) + 
   geom_point(aes(color=knn_result$cluster)) + 
+  geom_point(data = knn_outliers, shape = 4, size=3, alpha=0.2) +
   geom_polygon(data = poly_ellipse, alpha = 0.2, fill = "blue", color = "blue") +
   labs(title = "Visualizing KNN on Simulated Data", x = "x1", y = "y", color="KNN") +
   scale_color_gradient(low = "yellow", high = "red") +
@@ -158,6 +134,7 @@ ggplot(poly_train, aes(x = x1poly, y = ypoly)) +
 ```
 
 Let's now generate a mutli-linear regression model using this train data after removing points based on Mahalanobis and then Local Outlier Factor, and then find the MSE with the test data.
+
 ```{r}
 # Get the training data without the Mahalanobis outliers by removing points that are in mana_outliers
 poly_train_mana = poly_train[!poly_train$x1poly %in% mana_outliers$x1poly, ]
@@ -212,6 +189,7 @@ ggplot(r2_df, aes(x = method, y = r2)) +
 ```
 We can see that with MSE, Mahalanobis takes the crown, but with R-Sqaured Isolation Forest performs pretty well, with the same degree as Mahalanobis. Unfortunately in this case it seems as KNN and LOF don't perform well with MSE or R-Squared.
 
+### Complex Simulation
 Now we will do the same procedures with a multi-variable polynomial regression model. We will generate the data, add outliers, and then fit the model.
 
 ```{r}
@@ -280,6 +258,7 @@ Becuase this is 3-Dimensional, we will just plot y on x1 and x2 individually and
 # Plot the data, x1 first
 ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
   geom_point(aes(col=maha_dst)) +
+  geom_point(data = complex_train[maha_outliers, ], shape = 4, size=3, alpha=0.4) +
   labs(title = "Visualizing Mahalabonis on Multivariable Simulated Data for x1", x = "x1", y = "y") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
@@ -287,6 +266,7 @@ ggplot(complex_train, aes(x = x1complex, y = ycomplex)) +
 # Plot the data, x2 now
 ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
   geom_point(aes(col=maha_dst)) +
+  geom_point(data = complex_train[maha_outliers, ], shape = 4, size=3, alpha=0.4) +
   labs(title = "Visualizing Mahalabonis on Multivariable Simulated Data for x2", x = "x2", y = "y") +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
@@ -306,6 +286,7 @@ if_outliers
 ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
   geom_point(aes(col=if_outliers_pred)) +
   labs(title = "Visualizing Isolation Forest on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  geom_point(data = if_outliers, shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
@@ -313,6 +294,7 @@ ggplot(complex_train, aes(x = x1complex, y = ycomplex)) +
 ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
   geom_point(aes(col=if_outliers_pred)) +
   labs(title = "Visualizing Isolation Forest on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  geom_point(data = if_outliers, shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
@@ -332,6 +314,7 @@ lof_outliers
 ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
   geom_point(aes(col=lofmodel)) +
   labs(title = "Visualizing LOF on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  geom_point(data = complex_train[lof_outliers, ], shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
@@ -339,6 +322,7 @@ ggplot(complex_train, aes(x = x1complex, y = ycomplex)) +
 ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
   geom_point(aes(col=lofmodel)) +
   labs(title = "Visualizing LOF on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  geom_point(data = complex_train[lof_outliers, ], shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
@@ -348,55 +332,26 @@ Using KNN
 
 ```{r}
 # Use KNN to detect outliers
-# Perform KNN on the auto data
-best_test_mse = 999999
-best_eps = -1
-best_minpts = -1
-
-# Find the optimal values for eps and MinPts
-for (k in 2:5) {
-  for (eps in seq(0, 5, 0.5)) {
-    # Create the model using the KNN results
-    knn_result = dbscan(complex_train, eps = eps, minPts = k)
-    knn_outliers = which(knn_result$cluster == 0)
-    # Check if knn_outliers empty
-    if (length(knn_outliers) == 0 || length(knn_outliers) > 0.1 * nrow(complex_train)) {
-      next
-    }
-    model = lm(ycomplex~x1complex+I(x1complex^2)+x2complex+I(x2complex^2), data = complex_train[-knn_outliers, ])
-    
-    # Get the model's MSE on the test set
-    test_pred = predict(model, complex_train)
-    test_mse = mean((test_pred - complex_train$ycomplex)^2)
-    
-    # Update the best values if the model's MSE is better
-    if (test_mse < best_test_mse) {
-      best_test_mse = test_mse
-      best_eps = eps
-      best_minpts = k
-    }
-  }
-}
-
-# Best test MSE, eps, and MinPts values
-c(best_test_mse, best_eps, best_minpts)
-knn_result = dbscan(complex_train, eps = best_eps, minPts = best_minpts) # Optimal parameters found in the loop
-knn_outliers = which(knn_result$cluster == 0)
+knn_model = get.knn(complex_train, k = 5)
+knn_dist = knn_model$nn.dist[,5]
+knn_outliers = complex_train[knn_dist > 1.5, ]
 knn_outliers
 ```
 
 ```{r}
 # Plot the data, x1 first
 ggplot(complex_train, aes(x = x1complex, y = ycomplex)) + 
-  geom_point(aes(col=knn_result$cluster)) +
+  geom_point(aes(col=knn_dist)) +
   labs(title = "Visualizing KNN on Multivariable Simulated Data for x1", x = "x1", y = "y") +
+  geom_point(data=knn_outliers, shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
 # Plot the data, x2 now
 ggplot(complex_train, aes(x = x2complex, y = ycomplex)) + 
-  geom_point(aes(col=knn_result$cluster)) +
+  geom_point(aes(col=knn_dist)) +
   labs(title = "Visualizing KNN on Multivariable Simulated Data for x2", x = "x2", y = "y") +
+  geom_point(data=knn_outliers, shape = 4, size=3, alpha=0.4) +
   scale_color_gradient(low = "yellow", high = "red") +
   theme_minimal()
 
